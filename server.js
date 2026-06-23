@@ -72,6 +72,18 @@ async function initDatabase() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    
+    // 確保 merchants 表有 status 列（兼容舊數據庫）
+    try {
+      db.exec('ALTER TABLE merchants ADD COLUMN status TEXT DEFAULT "pending"');
+    } catch (e) {
+      // 列已存在，忽略錯誤
+    }
+    try {
+      db.exec('ALTER TABLE merchants ADD COLUMN deposit_paid INTEGER DEFAULT 0');
+    } catch (e) {
+      // 列已存在，忽略錯誤
+    }
 
     // 插入示例商品
     const productCount = db.exec('SELECT COUNT(*) as count FROM products');
