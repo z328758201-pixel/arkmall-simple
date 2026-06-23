@@ -66,7 +66,9 @@ async function initDatabase() {
         name TEXT NOT NULL,
         address TEXT UNIQUE NOT NULL,
         description TEXT,
+        status TEXT DEFAULT 'pending',
         rating REAL DEFAULT 0,
+        deposit_paid INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -313,8 +315,10 @@ app.get('/api/merchants', (req, res) => {
       name: row[1],
       address: row[2],
       description: row[3],
-      rating: row[4],
-      created_at: row[5]
+      status: row[4],
+      rating: row[5],
+      deposit_paid: row[6],
+      created_at: row[7]
     })) : [];
     res.json({ success: true, data: merchants });
   } catch (error) {
@@ -332,8 +336,10 @@ app.get('/api/merchants/pending', (req, res) => {
       name: row[1],
       address: row[2],
       description: row[3],
-      rating: row[4],
-      created_at: row[5]
+      status: row[4],
+      rating: row[5],
+      deposit_paid: row[6],
+      created_at: row[7]
     })) : [];
     res.json({ success: true, data: merchants });
   } catch (error) {
@@ -351,8 +357,8 @@ app.post('/api/merchants', (req, res) => {
       return res.status(400).json({ error: '商家名稱和地址必填' });
     }
     
-    const stmt = db.prepare('INSERT INTO merchants (name, address, description, status) VALUES (?, ?, ?, ?)');
-    stmt.run(name, address, description || '', 'pending');
+    const stmt = db.prepare('INSERT INTO merchants (name, address, description, status, deposit_paid) VALUES (?, ?, ?, ?, ?)');
+    stmt.run(name, address, description || '', 'pending', 0);
     
     res.json({ success: true, message: '商家入駐申請已提交，等待審核' });
   } catch (error) {
@@ -392,7 +398,7 @@ app.get('/api/search', (req, res) => {
       })) : [],
       merchants: merchants[0] ? merchants[0].values.map(row => ({
         id: row[0], name: row[1], address: row[2], description: row[3],
-        rating: row[4], created_at: row[5]
+        status: row[4], rating: row[5], deposit_paid: row[6], created_at: row[7]
       })) : []
     });
   } catch (error) {
