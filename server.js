@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-const Database = require('better-sqlite3');
+const initSqlJs = require('sql.js');
+const fs = require('fs');
 const path = require('path');
 
 const app = express();
@@ -10,17 +11,27 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// 數據庫連接（使用 SQLite）
-const db = new Database(path.join(__dirname, 'arkmall.db'));
+// 數據庫路徑
+const DB_PATH = path.join(__dirname, 'arkmall.db');
 
-// 啟用 WAL 模式
-db.pragma('journal_mode = WAL');
+// 數據庫實例
+let db;
 
 // 初始化數據庫
-function initDatabase() {
+async function initDatabase() {
   try {
+    const SQL = await initSqlJs();
+    
+    // 如果數據庫文件存在，讀取它
+    if (fs.existsSync(DB_PATH)) {
+      const fileBuffer = fs.readFileSync(DB_PATH);
+      db = new SQL.Database(fileBuffer);
+    } else {
+      db = new SQL.Database();
+    }
+
     // 創建商品表
-    db.exec(`
+    db.run(`
       CREATE TABLE IF NOT EXISTS products (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -34,7 +45,7 @@ function initDatabase() {
     `);
 
     // 創建訂單表
-    db.exec(`
+    db.run(`
       CREATE TABLE IF NOT EXISTS orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         order_no TEXT UNIQUE NOT NULL,
@@ -49,7 +60,7 @@ function initDatabase() {
     `);
 
     // 創建商家表
-    db.exec(`
+    db.run(`
       CREATE TABLE IF NOT EXISTS merchants (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -61,21 +72,41 @@ function initDatabase() {
     `);
 
     // 插入示例商品
-    const productCount = db.prepare('SELECT COUNT(*) as count FROM products').get();
-    if (productCount.count === 0) {
-      const insert = db.prepare(`
+    const productCount = db.exec('SELECT COUNT(*) as count FROM products');
+    if (productCount[0].values[0][0] === 0) {
+      db.run(`
         INSERT INTO products (name, description, price, image_url, category, stock)
         VALUES (?, ?, ?, ?, ?, ?)
-      `);
+      `, ['ARK 遊戲代幣', '用於 ARK 生態系統的遊戲代幣', 0.5, '/images/ark-token.png', '代幣', 1000000]);
       
-      insert.run('ARK 遊戲代幣', '用於 ARK 生態系統的遊戲代幣', 0.5, '/images/ark-token.png', '代幣', 1000000);
-      insert.run('ARK 限量周邊', 'ARK 官方限量版 T 恤', 25.0, '/images/ark-tshirt.png', '周邊', 100);
-      insert.run('ARK 遊戲禮包', '包含稀有道具和代幣的禮包', 10.0, '/images/ark礼包.png', '遊戲', 500);
+      db.run(`
+        INSERT INTO products (name, description, price, image_url, category, stock)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, ['ARK 限量周邊', 'ARK 官方限量版 T 恤', 25.0, '/images/ark-tshirt.png', '周邊', 100]);
+      
+      db.run(`
+        INSERT INTO products (name, description, price, image_url, category, stock)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, ['ARK 遊戲禮包', '包含稀有道具和代幣的禮包', 10.0, '/images/ark礼包.png', '遊戲', 500]);
     }
 
+    // 保存數據庫
+    saveDatabase();
+    
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
+  }
+}
+
+// 保存數據庫
+function saveDatabase() {
+  try {
+    const data = db.export();
+    const buffer = Buffer.from(data);
+    fs.writeFileSync(DB_PATH, buffer);
+  } catch (error) {
+    console.error('Error saving database:', error);
   }
 }
 
@@ -90,7 +121,17 @@ app.get('/api/health', (req, res) => {
 // 獲取所有商品
 app.get('/api/products', (req, res) => {
   try {
-    const products = db.prepare('SELECT * FROM products ORDER BY created_at DESC').all();
+    const result = db.exec('SELECT * FROM products ORDER BY created_at DESC');
+    const products = result[0] ? result[0].values.map(row => ({
+      id: row[0],
+      name: row[1],
+      description: row[2],
+      price: row[3],
+      image_url: row[4],
+      category: row[5],
+      stock: row[6],
+      created_at: row[7]
+    })) : [];
     res.json(products);
   } catch (error) {
     console.error('Error fetching products:', error);
@@ -102,12 +143,24 @@ app.get('/api/products', (req, res) => {
 app.post('/api/products', (req, res) => {
   try {
     const { name, description, price, image_url, category, stock } = req.body;
-    const result = db.prepare(`
+    db.run(`
       INSERT INTO products (name, description, price, image_url, category, stock)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(name, description, price, image_url, category, stock);
+    `, [name, description, price, image_url, category, stock]);
     
-    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(result.lastInsertRowid);
+    const result = db.exec('SELECT * FROM products WHERE id = last_insert_rowid()');
+    const product = result[0] ? {
+      id: result[0].values[0][0],
+      name: result[0].values[0][1],
+      description: result[0].values[0][2],
+      price: result[0].values[0][3],
+      image_url: result[0].values[0][4],
+      category: result[0].values[0][5],
+      stock: result[0].values[0][6],
+      created_at: result[0].values[0][7]
+    } : null;
+    
+    saveDatabase();
     res.status(201).json(product);
   } catch (error) {
     console.error('Error creating product:', error);
@@ -118,10 +171,20 @@ app.post('/api/products', (req, res) => {
 // 獲取單個商品
 app.get('/api/products/:id', (req, res) => {
   try {
-    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
-    if (!product) {
+    const result = db.exec('SELECT * FROM products WHERE id = ?', [req.params.id]);
+    if (!result[0] || result[0].values.length === 0) {
       return res.status(404).json({ error: 'Product not found' });
     }
+    const product = {
+      id: result[0].values[0][0],
+      name: result[0].values[0][1],
+      description: result[0].values[0][2],
+      price: result[0].values[0][3],
+      image_url: result[0].values[0][4],
+      category: result[0].values[0][5],
+      stock: result[0].values[0][6],
+      created_at: result[0].values[0][7]
+    };
     res.json(product);
   } catch (error) {
     console.error('Error fetching product:', error);
@@ -133,12 +196,24 @@ app.get('/api/products/:id', (req, res) => {
 app.put('/api/products/:id', (req, res) => {
   try {
     const { name, description, price, image_url, category, stock } = req.body;
-    db.prepare(`
+    db.run(`
       UPDATE products SET name = ?, description = ?, price = ?, image_url = ?, category = ?, stock = ?
       WHERE id = ?
-    `).run(name, description, price, image_url, category, stock, req.params.id);
+    `, [name, description, price, image_url, category, stock, req.params.id]);
     
-    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
+    const result = db.exec('SELECT * FROM products WHERE id = ?', [req.params.id]);
+    const product = result[0] ? {
+      id: result[0].values[0][0],
+      name: result[0].values[0][1],
+      description: result[0].values[0][2],
+      price: result[0].values[0][3],
+      image_url: result[0].values[0][4],
+      category: result[0].values[0][5],
+      stock: result[0].values[0][6],
+      created_at: result[0].values[0][7]
+    } : null;
+    
+    saveDatabase();
     res.json(product);
   } catch (error) {
     console.error('Error updating product:', error);
@@ -149,7 +224,8 @@ app.put('/api/products/:id', (req, res) => {
 // 刪除商品
 app.delete('/api/products/:id', (req, res) => {
   try {
-    db.prepare('DELETE FROM products WHERE id = ?').run(req.params.id);
+    db.run('DELETE FROM products WHERE id = ?', [req.params.id]);
+    saveDatabase();
     res.json({ message: 'Product deleted' });
   } catch (error) {
     console.error('Error deleting product:', error);
@@ -164,19 +240,32 @@ app.post('/api/orders', (req, res) => {
     const order_no = `ORD${Date.now()}`;
     
     // 獲取商品價格
-    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(product_id);
-    if (!product) {
+    const productResult = db.exec('SELECT * FROM products WHERE id = ?', [product_id]);
+    if (!productResult[0] || productResult[0].values.length === 0) {
       return res.status(404).json({ error: 'Product not found' });
     }
     
-    const total_price = product.price * quantity;
+    const productPrice = productResult[0].values[0][3];
+    const total_price = productPrice * quantity;
     
-    const result = db.prepare(`
+    db.run(`
       INSERT INTO orders (order_no, user_address, product_id, quantity, total_price)
       VALUES (?, ?, ?, ?, ?)
-    `).run(order_no, user_address, product_id, quantity, total_price);
+    `, [order_no, user_address, product_id, quantity, total_price]);
     
-    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(result.lastInsertRowid);
+    const result = db.exec('SELECT * FROM orders WHERE id = last_insert_rowid()');
+    const order = result[0] ? {
+      id: result[0].values[0][0],
+      order_no: result[0].values[0][1],
+      user_address: result[0].values[0][2],
+      product_id: result[0].values[0][3],
+      quantity: result[0].values[0][4],
+      total_price: result[0].values[0][5],
+      status: result[0].values[0][6],
+      created_at: result[0].values[0][7]
+    } : null;
+    
+    saveDatabase();
     res.status(201).json(order);
   } catch (error) {
     console.error('Error creating order:', error);
@@ -188,12 +277,24 @@ app.post('/api/orders', (req, res) => {
 app.get('/api/orders', (req, res) => {
   try {
     const { user_address } = req.query;
-    let orders;
+    let result;
     if (user_address) {
-      orders = db.prepare('SELECT * FROM orders WHERE user_address = ? ORDER BY created_at DESC').all(user_address);
+      result = db.exec('SELECT * FROM orders WHERE user_address = ? ORDER BY created_at DESC', [user_address]);
     } else {
-      orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
+      result = db.exec('SELECT * FROM orders ORDER BY created_at DESC');
     }
+    
+    const orders = result[0] ? result[0].values.map(row => ({
+      id: row[0],
+      order_no: row[1],
+      user_address: row[2],
+      product_id: row[3],
+      quantity: row[4],
+      total_price: row[5],
+      status: row[6],
+      created_at: row[7]
+    })) : [];
+    
     res.json(orders);
   } catch (error) {
     console.error('Error fetching orders:', error);
