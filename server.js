@@ -302,6 +302,105 @@ app.get('/api/orders', (req, res) => {
   }
 });
 
+// ============ 商家 API ============
+
+// 獲取所有已批准的商家
+app.get('/api/merchants', (req, res) => {
+  try {
+    const result = db.exec('SELECT * FROM merchants WHERE status = ? ORDER BY created_at DESC', ['approved']);
+    const merchants = result[0] ? result[0].values.map(row => ({
+      id: row[0],
+      name: row[1],
+      address: row[2],
+      description: row[3],
+      rating: row[4],
+      created_at: row[5]
+    })) : [];
+    res.json({ success: true, data: merchants });
+  } catch (error) {
+    console.error('Error fetching merchants:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 獲取待審核商家
+app.get('/api/merchants/pending', (req, res) => {
+  try {
+    const result = db.exec('SELECT * FROM merchants WHERE status = ? ORDER BY created_at DESC', ['pending']);
+    const merchants = result[0] ? result[0].values.map(row => ({
+      id: row[0],
+      name: row[1],
+      address: row[2],
+      description: row[3],
+      rating: row[4],
+      created_at: row[5]
+    })) : [];
+    res.json({ success: true, data: merchants });
+  } catch (error) {
+    console.error('Error fetching pending merchants:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 商家入駐申請
+app.post('/api/merchants', (req, res) => {
+  try {
+    const { name, address, description } = req.body;
+    
+    if (!name || !address) {
+      return res.status(400).json({ error: '商家名稱和地址必填' });
+    }
+    
+    const stmt = db.prepare('INSERT INTO merchants (name, address, description, status) VALUES (?, ?, ?, ?)');
+    stmt.run(name, address, description || '', 'pending');
+    
+    res.json({ success: true, message: '商家入駐申請已提交，等待審核' });
+  } catch (error) {
+    console.error('Error creating merchant:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 商家審核通過
+app.put('/api/merchants/:id/approve', (req, res) => {
+  try {
+    const { id } = req.params;
+    const stmt = db.prepare('UPDATE merchants SET status = ? WHERE id = ?');
+    stmt.run('approved', id);
+    res.json({ success: true, message: '商家審核通過' });
+  } catch (error) {
+    console.error('Error approving merchant:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 獲取搜索結果
+app.get('/api/search', (req, res) => {
+  try {
+    const { keyword } = req.query;
+    if (!keyword) {
+      return res.status(400).json({ error: '請輸入搜索關鍵詞' });
+    }
+    
+    const products = db.exec("SELECT * FROM products WHERE name LIKE ? OR description LIKE ?", [`%${keyword}%`, `%${keyword}%`]);
+    const merchants = db.exec("SELECT * FROM merchants WHERE name LIKE ? AND status = 'approved'", [`%${keyword}%`]);
+    
+    res.json({
+      products: products[0] ? products[0].values.map(row => ({
+        id: row[0], merchant_id: row[1], name: row[2], description: row[3],
+        price: row[4], image_url: row[5], category: row[6], stock: row[7], created_at: row[8]
+      })) : [],
+      merchants: merchants[0] ? merchants[0].values.map(row => ({
+        id: row[0], name: row[1], address: row[2], description: row[3],
+        rating: row[4], created_at: row[5]
+      })) : []
+    });
+  } catch (error) {
+    console.error('Error searching:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // 啟動服務器
 app.listen(PORT, () => {
   console.log(`ARK Mall Backend running on port ${PORT}`);
