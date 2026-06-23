@@ -316,6 +316,44 @@ app.get('/api/orders', (req, res) => {
   }
 });
 
+// 更新訂單狀態
+app.put('/api/orders/:id', (req, res) => {
+  try {
+    const { status } = req.body;
+    db.run('UPDATE orders SET status = ? WHERE id = ?', [status, req.params.id]);
+    saveDatabase();
+    res.json({ success: true, message: '訂單狀態已更新' });
+  } catch (error) {
+    console.error('Error updating order:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 獲取單個訂單詳情
+app.get('/api/orders/:id', (req, res) => {
+  try {
+    const result = db.exec('SELECT * FROM orders WHERE id = ?', [req.params.id]);
+    if (!result[0] || result[0].values.length === 0) {
+      return res.status(404).json({ error: '訂單不存在' });
+    }
+    const row = result[0].values[0];
+    const order = {
+      id: row[0],
+      order_no: row[1],
+      user_address: row[2],
+      product_id: row[3],
+      quantity: row[4],
+      total_price: row[5],
+      status: row[6],
+      created_at: row[7]
+    };
+    res.json(order);
+  } catch (error) {
+    console.error('Error fetching order:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // ============ 商家 API ============
 
 // 獲取所有已批准的商家
