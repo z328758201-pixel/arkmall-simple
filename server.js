@@ -369,8 +369,7 @@ app.post('/api/merchants', (req, res) => {
       return res.status(400).json({ error: '商家名稱和地址必填' });
     }
     
-    const stmt = db.prepare('INSERT INTO merchants (name, address, description, status, deposit_paid) VALUES (?, ?, ?, ?, ?)');
-    stmt.run(name, address, description || '', 'pending', 0);
+    db.run('INSERT INTO merchants (name, address, description, status, deposit_paid) VALUES (?, ?, ?, ?, ?)', [name, address, description || '', 'pending', 0]);
     
     res.json({ success: true, message: '商家入駐申請已提交，等待審核' });
   } catch (error) {
@@ -383,8 +382,7 @@ app.post('/api/merchants', (req, res) => {
 app.put('/api/merchants/:id/approve', (req, res) => {
   try {
     const { id } = req.params;
-    const stmt = db.prepare('UPDATE merchants SET status = ? WHERE id = ?');
-    stmt.run('approved', id);
+    db.run('UPDATE merchants SET status = ? WHERE id = ?', ['approved', id]);
     res.json({ success: true, message: '商家審核通過' });
   } catch (error) {
     console.error('Error approving merchant:', error);
